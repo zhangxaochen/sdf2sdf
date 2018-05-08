@@ -18,22 +18,54 @@
 #include <fstream>
 
 //syn:
-#define FX 570.3999633789062
-#define FY 570.39996337890622
-#define CX 320.0
-#define CY 240.0
+// #define FX 570.3999633789062
+// #define FY 570.3999633789062
+// #define CX 320.0
+// #define CY 240.0
 //kinect:
-#define FX 538.925221
-#define FY 538.925221
-#define CX 316.473843
-#define CY 243.262082
+#define FX_k 538.925221
+#define FY_k 538.925221
+#define CX_k 316.473843
+#define CY_k 243.262082
+
+double FX = FX_k, FY = FY_k,
+       CX = CX_k, CY = CY_k;
 
 #define DELTA 0.005
 double BETA = 0.5;
 //expected object thickness
 #define ETA 0.01
 
-float SIDE_LENGTH = 0.002; //4mm; if 2mm, time cost inc cubic
+float SIDE_LENGTH = 0.004; //4mm; if 2mm, time cost inc cubic
+
+void load_param_file(std::string filename)
+{
+    FILE *f = fopen(filename.c_str(), "r");
+    if (f != NULL)
+    {
+        char buffer[1024];
+        while (fgets(buffer, 1024, f) != NULL)
+        {
+            if (strlen(buffer) > 0 && buffer[0] != '#')
+            {
+                sscanf(buffer, "%lf", &FX);
+                fgets(buffer, 1024, f);
+                sscanf(buffer, "%lf", &FY);
+                fgets(buffer, 1024, f);
+                sscanf(buffer, "%lf", &CX);
+                fgets(buffer, 1024, f);
+                sscanf(buffer, "%lf", &CY);
+                fgets(buffer, 1024, f);
+                // sscanf(buffer, "%lf", &ICP_trunc_);
+                // fgets(buffer, 1024, f);
+                // sscanf(buffer, "%lf", &integration_trunc_);
+            }
+        }
+        fclose(f);
+        // PCL_WARN("Camera model set to (fx, fy, cx, cy, icp_trunc, int_trunc):\n\t%.2f, %.2f, %.2f, %.2f, %.2f, %.2f\n", fx_, fy_, cx_, cy_, ICP_trunc_, integration_trunc_);
+        PCL_WARN("Camera model set to (fx, fy, cx, cy):\n\t%.2f, %.2f, %.2f, %.2f\n", FX, FY, CX, CY);
+    }
+}//load_param_file
 
 cv::Mat load_exr_depth(std::string filename, bool isExr = true)
 {
@@ -46,7 +78,7 @@ cv::Mat load_exr_depth(std::string filename, bool isExr = true)
     depth_map.convertTo( depth_map, CV_32FC1, 0.001 );
 
     return depth_map;
-}
+}//load_exr_depth
 
 cv::Mat mask_dmap(cv::Mat dmap, cv::Mat msk){
     // cv::Mat res = dmap[msk != 0];
@@ -219,13 +251,16 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
         if(iter < 1)
             printf("vxl_valid_cnt: %d\n", vxl_valid_cnt);
 
+#if 1
         Eigen::Matrix<double, 6, 1> inter_twist = A.inverse() * b;
         initial_twist += BETA * (inter_twist - initial_twist);
 
+#else
         //zc: try direct GD myself
-        // initial_twist -= 1e-7 * delta_twist;
-        // cout << "delta_twist:" << delta_twist.transpose() << endl
-        //      << "A:" << A << endl;
+        initial_twist -= 1e-7 * delta_twist;
+        cout << "delta_twist:" << delta_twist.transpose() << endl
+             << "A:" << A << endl;
+#endif
 
         // printf("%d th, error = %lf, vxl_valid_cnt: %d, avg-err: %lf\n", iter, error, vxl_valid_cnt, error / vxl_valid_cnt);
         // printf("twist is : ");
@@ -276,6 +311,10 @@ int main(int argc, char *argv[])
     if (use_exr) //*.exr has no omask.png accompanied
         use_omask = false;
 
+    std::string camera_file;
+    if(pc::parse_argument(argc, argv, "-param", camera_file) > 0)
+        load_param_file(camera_file);
+    
 #if 10 //data sequences
 
     //init frame 0, set as Identity
