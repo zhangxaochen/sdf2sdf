@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 2.6 FATAL_ERROR)
 project(sdf2sdf)
 find_package(PCL 1.8 REQUIRED COMPONENTS common io visualization features)
 find_package(OpenCV REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
+#zc:
+message(STATUS "opencv-incdir: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
+
+include_directories(${PCL_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 set(CMAKE_CXX_STANDARD 11)

@@ -6,40 +6,42 @@
 #include "sophus/se3.hpp"
 Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,double cy,
                       cv::Mat &depth_image, const myPoint &point, Eigen::Matrix<double, 6, 1> &twist,
-                      double delta, double eta, double &weight)
+                      double delta, double eta, double vxl_length, double &weight)
 {
     myPoint preX, postX;
     double prePhi, postPhi;
     //double epsilon = +1.0e-5;
-    double epsilon = 4.0e-3;
+    // double epsilon = 4.0e-3;
+    double epsilon = vxl_length;
     Eigen::Matrix<double, 1, 3> gradient;
     Eigen::Matrix<double, 6, 1> preTwist, postTwist;
 
+    bool need_twist = true;
     //partial phi / partial x
     preX = point;
     preX.x = point.x - epsilon;
-    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,false);
+    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,need_twist);
     postX = point;
     postX.x = point.x + epsilon;
-    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,false);
+    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,need_twist);
     gradient(0) = (postPhi - prePhi) / (2 * epsilon);
     if ((postPhi < -1) || (prePhi < -1)) gradient(0) = 0;
     //partial phi / partial y
     preX = point;
     preX.y = point.y - epsilon;
-    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,false);
+    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,need_twist);
     postX = point;
     postX.y = point.y + epsilon;
-    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,false);
+    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,need_twist);
     gradient(1) = (postPhi - prePhi) / (2 * epsilon);
     if ((postPhi < -1) || (prePhi < -1)) gradient(1) = 0;
     //partial phi / partial z
     preX = point;
     preX.z = point.z - epsilon;
-    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,false);
+    prePhi = PhisFunc(fx,fy,cx,cy,depth_image,preX,twist,delta,eta,weight,need_twist);
     postX = point;
     postX.z = point.z + epsilon;
-    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,false);
+    postPhi = PhisFunc(fx,fy,cx,cy,depth_image,postX,twist,delta,eta,weight,need_twist);
     gradient(2) = (postPhi - prePhi) / (2 * epsilon);
     if ((postPhi < -1) || (prePhi < -1)) gradient(2) = 0;
 
@@ -49,7 +51,7 @@ Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,doubl
 
     //apply inverse to point
     Eigen::Vector4d trans_point (point.x, point.y, point.z, 1);
-    trans_point = inverse_homogenous * trans_point;
+    // trans_point = inverse_homogenous * trans_point;
     Eigen::Matrix<double , 3, 6> concatenate_matrix;
 
     //concatenate the Identity and inversed point

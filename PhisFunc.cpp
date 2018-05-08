@@ -26,11 +26,22 @@ double PhisFunc(double fx,double fy,double cx,double cy,
     //calculate SDF function
     int px = int(fx*t_point.x/t_point.z + cx);
     int py = int(fy*t_point.y/t_point.z + cy);
+
     if (!(validRow(py) && validCol(px)))
     {
         return -999;
     }
-    double trueSDF = depth_image.at<float>(py,px) - t_point.z;
+
+    float depth_val = depth_image.at<float>(py, px);
+    if (depth_val < 1e-8)
+    {
+        // printf("depth_val < 1e-8; point.xyz: %f, %f, %f\n", point.x, point.y, point.z);
+
+        return -999;
+    }
+
+    // double trueSDF = depth_image.at<float>(py,px) - t_point.z;
+    double trueSDF = depth_val - t_point.z;
     double SDF;
     if (trueSDF >= delta) SDF = 1;
     else if (trueSDF <= -delta) SDF = -1;

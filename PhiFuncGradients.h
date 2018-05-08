@@ -9,8 +9,8 @@
 #include "PhisFunc.h"
 #include "selfCross.h"
 #include "myPoint.h"
-Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,double cy,
-                                            cv::Mat &depth_image, const myPoint &point, Eigen::Matrix<double, 6, 1> &twist,
-                                             double delta, double eta, double &weight);
+Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx, double fy, double cx, double cy,
+                                             cv::Mat &depth_image, const myPoint &point, Eigen::Matrix<double, 6, 1> &twist,
+                                             double delta, double eta, double vxl_length, double &weight);
 
 #endif //SDF2SDF_PHIFUNCGRADIENTS_H
