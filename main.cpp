@@ -16,6 +16,8 @@
 // #include <iostream>
 #include <glob.h>
 #include <fstream>
+#include <limits>
+#include <cmath>
 
 //syn:
 // #define FX 570.3999633789062
@@ -37,6 +39,55 @@ double BETA = 0.5;
 #define ETA 0.01
 
 float SIDE_LENGTH = 0.004; //4mm; if 2mm, time cost inc cubic
+
+void bilateral_filter(cv::Mat src, cv::Mat dst){
+    using namespace std;
+
+    const float sigma_color = 30;  //in mm
+    const float sigma_space = 2.5; // in pixels
+
+    float sigma_space2_inv_half = 0.5 / (sigma_space * sigma_space),
+          sigma_color2_inv_half = 0.5 / (sigma_color * sigma_color);
+
+    // const int R = 6;
+    const int R = static_cast<int>(sigma_space * 1.5);
+    const int D = R * 2 + 1;
+
+    for (int x = 0; x < src.cols; ++x)
+    {
+        for (int y = 0; y < src.rows; ++y)
+        {
+
+            int value = src.at<ushort>(y, x);
+
+            int tx = min(x - D / 2 + D, src.cols - 1);
+            int ty = min(y - D / 2 + D, src.rows - 1);
+
+            float sum1 = 0;
+            float sum2 = 0;
+
+            for (int cy = max(y - D / 2, 0); cy < ty; ++cy)
+            {
+                for (int cx = max(x - D / 2, 0); cx < tx; ++cx)
+                {
+                    int tmp = src.at<ushort>(cy, cx);
+
+                    float space2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    float color2 = (value - tmp) * (value - tmp);
+
+                    float weight = expf(-(space2 * sigma_space2_inv_half + color2 * sigma_color2_inv_half));
+
+                    sum1 += tmp * weight;
+                    sum2 += weight;
+                }
+            }
+
+            // int res = __float2int_rn(sum1 / sum2);
+            int res = int(sum1 / sum2 + 0.5);
+            dst.at<ushort>(y, x) = max(0, min(res, (int)numeric_limits<ushort>::max()));
+        }
+    }
+} //bilateral_filter
 
 void load_param_file(std::string filename)
 {
@@ -73,6 +124,10 @@ cv::Mat load_exr_depth(std::string filename, bool isExr = true)
     cv::Mat depth_map = cv::imread( filename, -1 );
     if(isExr)
         cv::cvtColor(depth_map, depth_map, CV_RGB2GRAY);
+
+    cv::Mat tmp = depth_map.clone();
+    // cv::bilateralFilter(tmp, depth_map, 3, 4, 4);
+    bilateral_filter(tmp, depth_map);
 
     // convert to meters
     depth_map.convertTo( depth_map, CV_32FC1, 0.001 );
@@ -354,6 +409,7 @@ int main(int argc, char *argv[])
 
     const int FRAME_INTERV = 1;
     for (size_t i = 0; i + FRAME_INTERV < glob_dmap.gl_pathc; i += FRAME_INTERV)
+    // for (size_t i = 0; i + FRAME_INTERV < 40; i += FRAME_INTERV)
     {
         // printf("%s\n", glob_dmap.gl_pathv[i]);
         printf("-----%lu, ", i);
@@ -375,7 +431,10 @@ int main(int argc, char *argv[])
             cv::Mat krnl = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2*ksz+1, 2*ksz+1));
             // cv::morphologyEx(depth_map_ref, depth_map_ref, cv::MORPH_OPEN, krnl);
 
-            // cv::bilateral
+            // cv::Mat tmp = depth_map_ref.clone();
+            // cv::bilateralFilter(tmp, depth_map_ref, 3, 4, 4);
+            // tmp = depth_map_tar.clone();
+            // cv::bilateralFilter(tmp, depth_map_tar, 3, 4, 4);
         }
 
         //i->i+1
