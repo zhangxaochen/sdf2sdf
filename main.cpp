@@ -16,8 +16,8 @@
 // #include <iostream>
 #include <glob.h>
 #include <fstream>
-#include <limits>
-#include <cmath>
+
+#include "bilateral.hpp"
 
 //syn:
 // #define FX 570.3999633789062
@@ -39,55 +39,6 @@ double BETA = 0.5;
 #define ETA 0.01
 
 float SIDE_LENGTH = 0.004; //4mm; if 2mm, time cost inc cubic
-
-void bilateral_filter(cv::Mat src, cv::Mat dst){
-    using namespace std;
-
-    const float sigma_color = 30;  //in mm
-    const float sigma_space = 2.5; // in pixels
-
-    float sigma_space2_inv_half = 0.5 / (sigma_space * sigma_space),
-          sigma_color2_inv_half = 0.5 / (sigma_color * sigma_color);
-
-    // const int R = 6;
-    const int R = static_cast<int>(sigma_space * 1.5);
-    const int D = R * 2 + 1;
-
-    for (int x = 0; x < src.cols; ++x)
-    {
-        for (int y = 0; y < src.rows; ++y)
-        {
-
-            int value = src.at<ushort>(y, x);
-
-            int tx = min(x - D / 2 + D, src.cols - 1);
-            int ty = min(y - D / 2 + D, src.rows - 1);
-
-            float sum1 = 0;
-            float sum2 = 0;
-
-            for (int cy = max(y - D / 2, 0); cy < ty; ++cy)
-            {
-                for (int cx = max(x - D / 2, 0); cx < tx; ++cx)
-                {
-                    int tmp = src.at<ushort>(cy, cx);
-
-                    float space2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-                    float color2 = (value - tmp) * (value - tmp);
-
-                    float weight = expf(-(space2 * sigma_space2_inv_half + color2 * sigma_color2_inv_half));
-
-                    sum1 += tmp * weight;
-                    sum2 += weight;
-                }
-            }
-
-            // int res = __float2int_rn(sum1 / sum2);
-            int res = int(sum1 / sum2 + 0.5);
-            dst.at<ushort>(y, x) = max(0, min(res, (int)numeric_limits<ushort>::max()));
-        }
-    }
-} //bilateral_filter
 
 void load_param_file(std::string filename)
 {
@@ -122,12 +73,20 @@ cv::Mat load_exr_depth(std::string filename, bool isExr = true)
 {
     // load the image
     cv::Mat depth_map = cv::imread( filename, -1 );
-    if(isExr)
+    if(isExr){
+        // printf("depth_map.type(), depth_map.depth(): %d, %d\n", depth_map.type(), depth_map.depth()); //21, 5, i.e., 32fc3
         cv::cvtColor(depth_map, depth_map, CV_RGB2GRAY);
+        // printf("depth_map.type(), depth_map.depth(): %d, %d\n", depth_map.type(), depth_map.depth()); //5, 5
 
-    cv::Mat tmp = depth_map.clone();
-    // cv::bilateralFilter(tmp, depth_map, 3, 4, 4);
-    bilateral_filter(tmp, depth_map);
+        cv::Mat tmp = depth_map.clone();
+        bilateral_filter<float>(tmp, depth_map);
+    }
+    else{
+
+        cv::Mat tmp = depth_map.clone();
+        // cv::bilateralFilter(tmp, depth_map, 3, 4, 4);
+        bilateral_filter<ushort>(tmp, depth_map);
+    }
 
     // convert to meters
     depth_map.convertTo( depth_map, CV_32FC1, 0.001 );
@@ -161,6 +120,9 @@ void DepthFrameToVertex(float fx,float fy,float cx,float cy,
             if (!std::isinf(z))
             {
                 //printf("point(%f,%f,%f)\n",target_pc->at(y,x).x,target_pc->at(y,x).y,target_pc->at(y,x).z);
+            }
+            if (z != 0 && !std::isinf(z))
+            {
             }
             //++pixel_ptr;
         }
@@ -340,6 +302,12 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar){
 
 int main(int argc, char *argv[])
 {
+#ifdef NDEBUG
+    printf(">>>>>>Release\n");
+#else
+    printf(">>>>>>Debug\n");
+#endif
+
     using namespace std;
     using namespace Sophus;
     namespace pc = pcl::console;
@@ -365,6 +333,7 @@ int main(int argc, char *argv[])
         use_exr = true;
     if (use_exr) //*.exr has no omask.png accompanied
         use_omask = false;
+    PCL_WARN("\tuse_omask: %s, use_exr: %s\n", use_omask ? "TTT" : "FFF", use_exr ? "TTT" : "FFF");
 
     std::string camera_file;
     if(pc::parse_argument(argc, argv, "-param", camera_file) > 0)
