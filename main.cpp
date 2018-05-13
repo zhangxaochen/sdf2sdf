@@ -33,12 +33,12 @@
 double FX = FX_k, FY = FY_k,
        CX = CX_k, CY = CY_k;
 
-#define DELTA 0.005
+#define DELTA 0.002
 double BETA = 0.5;
 //expected object thickness
 #define ETA 0.01
 
-float SIDE_LENGTH = 0.004; //4mm; if 2mm, time cost inc cubic
+float SIDE_LENGTH = 0.002; //4mm; if 2mm, time cost inc cubic
 
 void load_param_file(std::string filename)
 {
@@ -344,10 +344,10 @@ int main(int argc, char *argv[])
     //init frame 0, set as Identity
     Vector6d twist0 = Vector6d::Zero();
     SE3d se_0i = SE3d::exp(twist0); //T0->Ti, total transformation
-    SE3d se_0i_inv = se_0i.inverse();
+    SE3d se_i_0 = se_0i.inverse(); //i->0
 
-    const Eigen::Quaterniond q_i = se_0i_inv.unit_quaternion(); //frame0:=I
-    Vector3d t_i = se_0i_inv.translation();
+    const Eigen::Quaterniond q_i = se_i_0.unit_quaternion(); //frame0:=I
+    Vector3d t_i = se_i_0.translation();
 
     ofstream fout("s2s_poses.csv");
     //t.xyz+q.wxyz
@@ -381,7 +381,7 @@ int main(int argc, char *argv[])
     // for (size_t i = 0; i + FRAME_INTERV < 40; i += FRAME_INTERV)
     {
         // printf("%s\n", glob_dmap.gl_pathv[i]);
-        printf("-----%lu, ", i);
+        printf("-----%lu, %s\n", i, glob_dmap.gl_pathv[i]);
 
         //get depth map
         cv::Mat depth_map_ref = load_exr_depth(glob_dmap.gl_pathv[i], use_exr);
@@ -410,17 +410,20 @@ int main(int argc, char *argv[])
         Sophus::Vector6d twist = get_twist(depth_map_ref, depth_map_tar);
         Sophus::SE3d se_ii1 = Sophus::SE3d::exp(twist); //i->(i+1)
 
-        se_0i *= se_ii1;             //0->i->(i+1)
-        se_0i_inv = se_0i.inverse(); //i->0, c2g
+        // se_0i *= se_ii1;             //0->i->(i+1) //wrong, because right mutiply
+        // se_i_0 = se_0i.inverse(); //i->0, c2g
+        se_i_0 *= se_ii1.inverse(); //0<-i<-(i+1), c2g
 
         // when save to txt, use i->0, camera2global, c2g
-        const Eigen::Quaterniond q_i = se_0i_inv.unit_quaternion();
-        t_i = se_0i_inv.translation();
+        const Eigen::Quaterniond q_i = se_i_0.unit_quaternion();
+        t_i = se_i_0.translation();
         fout << t_i.x() << ',' << t_i.y() << ',' << t_i.z() << ',' << q_i.w() << ',' << q_i.x() << ',' << q_i.y() << ',' << q_i.z() << endl;
     }
     fout.close();
     globfree(&glob_dmap);
-    
+
+    printf(">>>fxy,cxy: %f, %f, %f, %f\n  delta,eta: %f, %f, beta,slen: %f, %f\n",
+           FX, FY, CX, CY, DELTA, ETA, BETA, SIDE_LENGTH);
     printf("-----------DONE-----------\n");
 
     return 0;
