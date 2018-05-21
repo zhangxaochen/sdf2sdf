@@ -34,7 +34,7 @@ double FX = FX_k, FY = FY_k,
        CX = CX_k, CY = CY_k;
 
 #define DELTA 0.002
-double BETA = 0.5;
+double BETA = 0.2;
 //expected object thickness
 #define ETA 0.01
 
@@ -78,8 +78,8 @@ cv::Mat load_exr_depth(std::string filename, bool isExr = true)
         cv::cvtColor(depth_map, depth_map, CV_RGB2GRAY);
         // printf("depth_map.type(), depth_map.depth(): %d, %d\n", depth_map.type(), depth_map.depth()); //5, 5
 
-        cv::Mat tmp = depth_map.clone();
-        bilateral_filter<float>(tmp, depth_map);
+        // cv::Mat tmp = depth_map.clone();
+        // bilateral_filter<float>(tmp, depth_map);
     }
     else{
 
@@ -408,6 +408,8 @@ int main(int argc, char *argv[])
 
         //i->i+1
         Sophus::Vector6d twist = get_twist(depth_map_ref, depth_map_tar);
+        cout << "twist: " << twist.transpose() << endl;
+
         Sophus::SE3d se_ii1 = Sophus::SE3d::exp(twist); //i->(i+1)
 
         // se_0i *= se_ii1;             //0->i->(i+1) //wrong, because right mutiply
@@ -454,12 +456,30 @@ int main(int argc, char *argv[])
     DepthFrameToVertex(FX,FY,CX,CY,depth_map_tar,tar_point_cloud,0);
 
     Eigen::Matrix<double ,6,1> initial_twist = get_twist(depth_map_ref, depth_map_tar, ref_point_cloud, tar_point_cloud);
-    
+    cout << "twist: " << initial_twist.transpose() << endl;
+
     //convert the target to reference
     //get the reverse of reference position
-    Sophus::SE3d se = Sophus::SE3d::exp(initial_twist);
+    // Sophus::SE3d se = Sophus::SE3d::exp(initial_twist);
+
+    // i6->i0
+    // Sophus::SE3d se(Eigen::Quaterniond(0.9962187260,-0.0008659845,-0.0742914162,-0.0450369721), {0.109307,-0.00638849,0.00853807}); //GT
+    // Sophus::SE3d se(Eigen::Quaterniond(0.997138,0.00165619,-0.0486698,-0.0578235), {0.0741724,-0.00285784,0.00362768}); //test
+    // i1->i0
+    // Sophus::SE3d se(Eigen::Quaterniond(0.9999389981,-0.0002195521,-0.0095153305,-0.0056299934), {0.0141771000,-0.0004258450,0.0001466270}); //GT
+    // Sophus::SE3d se(Eigen::Quaterniond(0.997138,0.00165619,-0.0486698,-0.0578235), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, BAD
+    Sophus::SE3d se(Eigen::Quaterniond(0.999981, 2.98226e-05, 0.00503015, -0.00365883), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, GOOD
+    se = se.inverse(); //i0->ix, keep consistent
+
     Eigen::Matrix<double, 4, 4> inverse_homogenous = (se.inverse()).matrix();
+    cout << "twist-inverse: " << se.inverse().log().transpose() << endl;
+
+    Eigen::Quaterniond q_inv = se.inverse().unit_quaternion();
+    cout << "inv:-> t.xyz, q.wxyz: " << se.inverse().translation().transpose() << ", " << q_inv.w() << ", " << q_inv.x() << ", " << q_inv.y() << ", " << q_inv.z() << ", " << endl;
+
     pcl::transformPointCloud (*tar_point_cloud, *final_tar_point_cloud, inverse_homogenous);
+    cout << "inverse_homogenous:\n"
+         << inverse_homogenous << endl;
 
     // Visualization
     pcl::visualization::PCLVisualizer viewer ("Matrix transformation");

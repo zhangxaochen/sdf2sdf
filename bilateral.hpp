@@ -14,7 +14,7 @@ void bilateral_filter(cv::Mat src, cv::Mat dst){
     using namespace std;
 
     const float sigma_color = 30;  //in mm
-    const float sigma_space = 4.5; // in pixels
+    const float sigma_space = 2.5; // in pixels
 
     float sigma_space2_inv_half = 0.5 / (sigma_space * sigma_space),
           sigma_color2_inv_half = 0.5 / (sigma_color * sigma_color);
@@ -30,7 +30,7 @@ void bilateral_filter(cv::Mat src, cv::Mat dst){
 
             // int value = src.at<ushort>(y, x);
             DTYPE value = src.at<DTYPE>(y, x);
-            if (std::isinf(value))
+            if (std::isinf(value) || abs(value) < 1e-8)
             {
                 dst.at<DTYPE>(y, x) = value;
                 continue;
@@ -48,7 +48,7 @@ void bilateral_filter(cv::Mat src, cv::Mat dst){
                 {
                     // int tmp = src.at<ushort>(cy, cx);
                     DTYPE tmp = src.at<DTYPE>(cy, cx);
-                    if (std::isinf(tmp))
+                    if (std::isinf(tmp) || abs(tmp) < 1e-8)
                         continue;
 
                     float space2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
