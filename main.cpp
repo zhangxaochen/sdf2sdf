@@ -78,8 +78,8 @@ cv::Mat load_exr_depth(std::string filename, bool isExr = true)
         cv::cvtColor(depth_map, depth_map, CV_RGB2GRAY);
         // printf("depth_map.type(), depth_map.depth(): %d, %d\n", depth_map.type(), depth_map.depth()); //5, 5
 
-        // cv::Mat tmp = depth_map.clone();
-        // bilateral_filter<float>(tmp, depth_map);
+        cv::Mat tmp = depth_map.clone();
+        bilateral_filter<float>(tmp, depth_map);
     }
     else{
 
@@ -328,12 +328,14 @@ int main(int argc, char *argv[])
     pc::parse_argument(argc, argv, "-eval", eval_folder);
 
     bool use_omask = pc::find_switch(argc, argv, "-om");
+    bool use_tmask = pc::find_switch(argc, argv, "-tm");
     bool use_exr = pc::find_switch(argc, argv, "-exr");
     if (eval_folder.find("Synthetic") != std::string::npos)
         use_exr = true;
     if (use_exr) //*.exr has no omask.png accompanied
-        use_omask = false;
-    PCL_WARN("\tuse_omask: %s, use_exr: %s\n", use_omask ? "TTT" : "FFF", use_exr ? "TTT" : "FFF");
+        use_omask = use_tmask = false;
+    PCL_WARN("\tuse_omask: %s, use_tmask: %s, use_exr: %s\n", 
+    use_omask ? "TTT" : "FFF", use_tmask ? "TTT" : "FFF", use_exr ? "TTT" : "FFF");
 
     std::string camera_file;
     if(pc::parse_argument(argc, argv, "-param", camera_file) > 0)
@@ -359,7 +361,7 @@ int main(int argc, char *argv[])
     // std::string pat_dmap = path_dat + "depth_*.exr"; //for syn-...
     // pat_dmap = path_dat + "depth_*.png"; //for kinect-...
     // std::string pat_omsk = path_dat + "omask_*.png";
-    std::string pat_dmap, pat_omsk;
+    std::string pat_dmap, pat_omsk, pat_tmsk;
     if(use_exr){
         pat_dmap = eval_folder + "/depth_*.exr";
     }
@@ -367,12 +369,15 @@ int main(int argc, char *argv[])
         pat_dmap = eval_folder + "/depth_*.png";
         if(use_omask)
             pat_omsk = eval_folder + "/omask_*.png";
+        if (use_tmask)
+            pat_tmsk = eval_folder + "/tmask_*.png";
     }
     printf("pat_dmap: %s\n, pat_omsk: %s\n", pat_dmap.c_str(), pat_omsk.c_str());
 
-    glob_t glob_dmap, glob_omsk;
+    glob_t glob_dmap, glob_omsk, glob_tmsk;
     glob(pat_dmap.c_str(), GLOB_TILDE, NULL, &glob_dmap);
     glob(pat_omsk.c_str(), GLOB_TILDE, NULL, &glob_omsk);
+    glob(pat_tmsk.c_str(), GLOB_TILDE, NULL, &glob_tmsk);
 
     printf("dmap-cnt: %lu, omsk-cnt: %lu\n", glob_dmap.gl_pathc, glob_omsk.gl_pathc);
 
@@ -389,10 +394,19 @@ int main(int argc, char *argv[])
         if(use_omask)
         {
             cv::Mat omask = cv::imread(glob_omsk.gl_pathv[i], -1);
-            // depth_map_ref = depth_map_ref[omask != 0];
+            if(use_tmask){
+                cv::Mat tmask = cv::imread(glob_tmsk.gl_pathv[i], -1);
+                omask = omask + tmask;
+                // cv::imshow("omask+tmask", omask);
+                // cv::waitKey(0);
+            }
             depth_map_ref.setTo(0, omask == 0);
+
             omask = cv::imread(glob_omsk.gl_pathv[i + FRAME_INTERV], -1);
-            // depth_map_tar = depth_map_tar[omask != 0];
+            if(use_tmask){
+                cv::Mat tmask = cv::imread(glob_tmsk.gl_pathv[i] + FRAME_INTERV, -1);
+                omask = omask + tmask;
+            }
             depth_map_tar.setTo(0, omask == 0);
 
             //dilate ref img, to de-noise isolated point
