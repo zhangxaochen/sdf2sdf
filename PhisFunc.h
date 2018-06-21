@@ -10,6 +10,6 @@
 
 double PhisFunc(double fx,double fy,double cx,double cy,
                cv::Mat &depth_image, const myPoint &point, Eigen::Matrix<double, 6, 1> &twist,
-                double delta, double eta, double &weight, bool needTwist);
+                double delta, double eta, double &weight, bool needTwist, bool doDbgPrint = false);
 
 #endif //SDF2SDF_PHISFUNC_H

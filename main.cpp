@@ -4,6 +4,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/console/parse.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 #include <opencv/cvaux.h>
 #include "PhiFuncGradients.h"
@@ -30,11 +31,14 @@
 #define CX_k 316.473843
 #define CY_k 243.262082
 
+// pcl::PointXYZ vxlDbg(47, 107, 258);
+pcl::PointXYZ vxlDbg(73,129,366);
+
 double FX = FX_k, FY = FY_k,
        CX = CX_k, CY = CY_k;
 
-#define DELTA 0.002
-double BETA = 0.2;
+#define DELTA 0.005
+double BETA = 0.5;
 //expected object thickness
 #define ETA 0.01
 
@@ -190,9 +194,9 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
     pointll.x -= 2 * SIDE_LENGTH; pointll.y -= 2 * SIDE_LENGTH; pointll.z -= 2 * SIDE_LENGTH;
     pointur.x += 2 * SIDE_LENGTH; pointur.y += 2 * SIDE_LENGTH; pointur.z += 2 * SIDE_LENGTH;
 
-    // printf("After padding......\n");
-    // printf("pointLL(%f,%f,%f)\n",pointll.x,pointll.y,pointll.z);
-    // printf("pointUR(%f,%f,%f)\n",pointur.x,pointur.y,pointur.z);
+    printf("After padding......\n");
+    printf("pointLL(%f,%f,%f)\n",pointll.x,pointll.y,pointll.z);
+    printf("pointUR(%f,%f,%f)\n",pointur.x,pointur.y,pointur.z);
     /* Result
      pointLL(-0.113570,0.012829,0.448250)
      pointUR(0.014296,0.125222,0.502750)
@@ -207,6 +211,7 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
     int max_y = (int) maxVoxel.y;
     int max_z = (int) maxVoxel.z;
     printf("max_xyz: %d, %d, %d; total: %d\n", max_x, max_y, max_z, max_x * max_y * max_z);
+    printf("vxlDbg.xyz: %f, %f, %f\n", vxlDbg.x, vxlDbg.y, vxlDbg.z);
 
     double weight_ref, weight_tar, weight_temp;
 
@@ -227,18 +232,32 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
         for (int i = 0; i < max_x; i++) {
             for (int j = 0; j < max_y; j++) {
                 for (int k = 0; k < max_z; k++) {
+                    bool doDbgPrint = false;
+                    if (int(vxlDbg.x) == i && int(vxlDbg.y) == j && int(vxlDbg.z) == k){
+                        doDbgPrint = true;
+                        // printf("+++++++++++++++doDbgPrint\n");
+                    }
+
                     pcl::PointXYZ intPoint(i, j, k);
                     pcl::PointXYZ floatPoint = getVoxelCenterByVoxel(intPoint, pointll, SIDE_LENGTH);
                     myPoint voxel(floatPoint.x, floatPoint.y, floatPoint.z);
                     double PhiRef = PhisFunc(FX, FY, CX, CY, depth_map_ref,
                                              voxel, initial_twist,
                                              DELTA, ETA, weight_ref, false);
+                    if (doDbgPrint)
+                        printf("PhiRef, weight_ref: %f, %f; ", PhiRef, weight_ref);
                     if (PhiRef < -1 || weight_ref == 0) continue;
 
                     double PhiTar = PhisFunc(FX, FY, CX, CY, depth_map_tar,
                                              voxel, initial_twist,
                                              DELTA, ETA, weight_tar, true);
+                    if (doDbgPrint)
+                        printf("PhiTar, weight_tar: %f, %f; \n", PhiTar, weight_tar);
+
                     if (PhiTar < -1 || PhiTar == PhiRef || weight_tar == 0) continue;
+
+                    // if (doDbgPrint)
+                    //     printf("phi1/2, w1/2: %f, %f, %f, %f\n", PhiRef, PhiTar, weight_ref, weight_tar);
 
                     // if ((PhiRef < -1) || (PhiTar < -1)) continue;
 
@@ -257,7 +276,10 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
                          gradient.transpose();
                     //zc:
                     delta_twist += (PhiTar - PhiRef) * gradient.transpose();
-
+                    if(doDbgPrint)
+                        printf("sdf-err: %f\n", 0.5 * (PhiRef * weight_ref - PhiTar * weight_tar) *
+                            (PhiRef * weight_ref - PhiTar * weight_tar));
+                            
                     if ((PhiRef * weight_ref - PhiTar * weight_tar) *
                         (PhiRef * weight_ref - PhiTar * weight_tar) != 0)
                     error += 0.5 * (PhiRef * weight_ref - PhiTar * weight_tar) *
@@ -269,7 +291,13 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
             printf("vxl_valid_cnt: %d\n", vxl_valid_cnt);
 
 #if 1
+
         Eigen::Matrix<double, 6, 1> inter_twist = A.inverse() * b;
+        // cout << "A, b:" << A << endl
+        //      << b << endl
+        //      << "A.det: " << A.determinant() << endl
+        //      << "A'*b: " << inter_twist.transpose() << endl;
+
         initial_twist += BETA * (inter_twist - initial_twist);
 
 #else
@@ -283,7 +311,7 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
         // printf("twist is : ");
         // for (int l = 0; l < 6; l ++)
         //     printf("%f \n",initial_twist(l,0));
-    }
+    }//for-iter
     printf("time-cost: %f\n", double(clock()-begt)/CLOCKS_PER_SEC);
 
     return initial_twist;
@@ -299,6 +327,28 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar){
 
     return get_twist(depth_map_ref, depth_map_tar, ref_point_cloud, tar_point_cloud);
 }//get_twist
+
+const std::string pt_picked_str = "MousePickedPoint";
+
+void pointPickingCallback(const pcl::visualization::PointPickingEvent &event, void *cookie){
+    if (event.getPointIndex() == -1)
+        return;
+
+    pcl::PointXYZ pt_picked;
+    event.getPoint(pt_picked.x, pt_picked.y, pt_picked.z);
+    cout << pt_picked << endl;
+    // Vector3f cell_size = this->kinfu_->volume().getVoxelSize();
+    pcl::visualization::PCLVisualizer *viewer = (pcl::visualization::PCLVisualizer *)(cookie);
+    viewer->removeShape(pt_picked_str);
+    viewer->addSphere(pt_picked, SIDE_LENGTH/2, 1,0,1, pt_picked_str);
+
+    // vxlDbg.x = pt_picked.x;
+    // vxlDbg.y = pt_picked.y;
+    // vxlDbg.z = pt_picked.z;
+    pcl::PointXYZ pt_ll(-0.148632, -0.250084, -0.004000); //kinect_bunny
+    vxlDbg = getVoxel(pt_picked, pt_ll, SIDE_LENGTH);
+    printf("@pointPickingCallback-vxlDbg.xyz: %f, %f, %f\n", vxlDbg.x, vxlDbg.y, vxlDbg.z);
+}//pointPickingCallback
 
 int main(int argc, char *argv[])
 {
@@ -322,6 +372,34 @@ int main(int argc, char *argv[])
 
     // return 0 ;
 
+    // Eigen::AngleAxisf tt = Eigen::AngleAxisf(0.1, Eigen::Vector3f::UnitZ ());
+    // cout<<tt.axis()<<endl;
+    // Eigen::Matrix<float, 6, 1> xi_curr;
+    // Eigen::Matrix<float, 3, 1> t3;
+    // t3<<1,2,3;
+    // // xi_curr=t3;
+    // xi_curr << t3, t3;
+    // cout<<t3<<','<<xi_curr<<endl;
+    // cout<<t3(0)<<endl;
+    // t3<<xi_curr;
+    // // cout<<tt(2)<<endl;
+
+    // Eigen::Vector3d t(1,0,0);           // 沿X轴平移1  
+    // Sophus::SE3 SE3_Rt(R, t);           // 从R,t构造SE(3)  
+    // Sophus::SE3 SE3_qt(q,t);            // 从q,t构造SE(3)  
+    // cout<<"SE3 from R,t= "<<endl<<SE3_Rt<<endl;  
+    // cout<<"SE3 from q,t= "<<endl<<SE3_qt<<endl;  
+    // // 李代数se(3) 是一个六维向量，方便起见先typedef一下  
+    // typedef Eigen::Matrix<double,6,1> Vector6d;// Vector6d指代　Eigen::Matrix<double,6,1>  
+    // Vector6d se3 = SE3_Rt.log();  
+    // cout<<"se3 = "<<se3.transpose()<<endl;  
+    // // 观察输出，会发现在Sophus中，se(3)的平移在前，旋转在后.  
+    // // 同样的，有hat和vee两个算符  
+    // cout<<"se3 hat = "<<endl<<Sophus::SE3::hat(se3)<<endl;  
+    // cout<<"se3 hat vee = "<<Sophus::SE3::vee( Sophus::SE3::hat(se3) ).transpose()<<endl;  
+      
+    // return 0;
+
     printf("-----------FX, FY, CX, CY: %f, %f, %f, %f\n", FX, FY, CX, CY);
 
     std::string eval_folder = "";
@@ -341,7 +419,7 @@ int main(int argc, char *argv[])
     if(pc::parse_argument(argc, argv, "-param", camera_file) > 0)
         load_param_file(camera_file);
     
-#if 10 //data sequences
+#if 0 //data sequences
 
     //init frame 0, set as Identity
     Vector6d twist0 = Vector6d::Zero();
@@ -452,15 +530,15 @@ int main(int argc, char *argv[])
     //get depth map
     // cv::Mat depth_map_ref = load_exr_depth("Synthetic_Kenny_Circle/depth_000000.exr");
     // cv::Mat depth_map_tar = load_exr_depth("Synthetic_Kenny_Circle/depth_000003.exr");
-    cv::Mat depth_map_ref = load_exr_depth("Kinect_Kenny_Turntable/depth_000000.png", false);
-    cv::Mat depth_map_tar = load_exr_depth("Kinect_Kenny_Turntable/depth_000001.png", false);
+    cv::Mat depth_map_ref = load_exr_depth(eval_folder + "/depth_000000.png", false);
+    cv::Mat depth_map_tar = load_exr_depth(eval_folder + "/depth_000003.png", false);
 
     if (use_omask)
     {
-        cv::Mat omask = cv::imread("Kinect_Kenny_Turntable/omask_000000.png", -1);
+        cv::Mat omask = cv::imread(eval_folder + "/omask_000000.png", -1);
         // depth_map_ref = depth_map_ref[omask != 0];
         depth_map_ref.setTo(0, omask == 0);
-        omask = cv::imread("Kinect_Kenny_Turntable/omask_000001.png", -1);
+        omask = cv::imread(eval_folder + "/omask_000003.png", -1);
         // depth_map_tar = depth_map_tar[omask != 0];
         depth_map_tar.setTo(0, omask == 0);
     }
@@ -474,7 +552,7 @@ int main(int argc, char *argv[])
 
     //convert the target to reference
     //get the reverse of reference position
-    // Sophus::SE3d se = Sophus::SE3d::exp(initial_twist);
+    Sophus::SE3d se = Sophus::SE3d::exp(initial_twist);
 
     // i6->i0
     // Sophus::SE3d se(Eigen::Quaterniond(0.9962187260,-0.0008659845,-0.0742914162,-0.0450369721), {0.109307,-0.00638849,0.00853807}); //GT
@@ -482,8 +560,8 @@ int main(int argc, char *argv[])
     // i1->i0
     // Sophus::SE3d se(Eigen::Quaterniond(0.9999389981,-0.0002195521,-0.0095153305,-0.0056299934), {0.0141771000,-0.0004258450,0.0001466270}); //GT
     // Sophus::SE3d se(Eigen::Quaterniond(0.997138,0.00165619,-0.0486698,-0.0578235), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, BAD
-    Sophus::SE3d se(Eigen::Quaterniond(0.999981, 2.98226e-05, 0.00503015, -0.00365883), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, GOOD
-    se = se.inverse(); //i0->ix, keep consistent
+    // Sophus::SE3d se(Eigen::Quaterniond(0.999981, 2.98226e-05, 0.00503015, -0.00365883), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, GOOD
+    // se = se.inverse(); //i0->ix, keep consistent
 
     Eigen::Matrix<double, 4, 4> inverse_homogenous = (se.inverse()).matrix();
     cout << "twist-inverse: " << se.inverse().log().transpose() << endl;
@@ -511,6 +589,8 @@ int main(int argc, char *argv[])
     viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "ref_cloud");
     viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "target_cloud");
     viewer.setPosition(800, 600); // Setting visualiser window position
+
+    viewer.registerPointPickingCallback(&pointPickingCallback, (void*)&viewer);
 
     //+++++++++++++++zc: compare with before alignment @2018-04-23 00:11:44
     pcl::visualization::PCLVisualizer viewer2 ("without transformation");
