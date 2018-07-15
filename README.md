@@ -2,7 +2,7 @@
 
 ## 2018-07-15
 
-I have also implemented a GPU version of the SDF-2-SDF algorithm, checkout the repo [CuFusion][1], and use "-s2s" command line args to toggle it. You can simply test Frame-to-frame and frame-to-model alignment currently.
+I have also implemented a GPU version of the SDF-2-SDF algorithm, checkout the repo [CuFusion][1], and use "-s2s" command line args to toggle it. You can simply test frame-to-frame and frame-to-model alignment currently.
 
 [1]: https://github.com/zhangxaochen/CuFusion
 
