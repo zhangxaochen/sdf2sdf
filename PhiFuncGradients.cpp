@@ -1,12 +1,17 @@
 //
 // Created by hyacinth on 2017/4/17.
 //
+#include <iostream>
 #include "PhiFuncGradients.h"
 #include "PhisFunc.h"
 #include "sophus/se3.hpp"
+
+using namespace std;
+
 Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,double cy,
                       cv::Mat &depth_image, const myPoint &point, Eigen::Matrix<double, 6, 1> &twist,
-                      double delta, double eta, double vxl_length, double &weight)
+                      double delta, double eta, double vxl_length, double &weight
+                      , bool doDbgPrint)
 {
     myPoint preX, postX;
     double prePhi, postPhi;
@@ -45,6 +50,9 @@ Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,doubl
     gradient(2) = (postPhi - prePhi) / (2 * epsilon);
     if ((postPhi < -1) || (prePhi < -1)) gradient(2) = 0;
 
+    if (doDbgPrint)
+        cout << "dPhi/dX: " << gradient << endl;
+
     //get the inverse of twist
     Sophus::SE3d se = Sophus::SE3d::exp(twist);
     Eigen::Matrix<double, 4, 4> inverse_homogenous = (se.inverse()).matrix();
@@ -52,6 +60,7 @@ Eigen::Matrix<double, 1, 6> PhiFuncGradients(double fx,double fy,double cx,doubl
     //apply inverse to point
     Eigen::Vector4d trans_point (point.x, point.y, point.z, 1);
     // trans_point = inverse_homogenous * trans_point;
+    // trans_point = se.matrix() * trans_point; //g2c
     Eigen::Matrix<double , 3, 6> concatenate_matrix;
 
     //concatenate the Identity and inversed point

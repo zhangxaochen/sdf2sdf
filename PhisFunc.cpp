@@ -48,5 +48,8 @@ double PhisFunc(double fx,double fy,double cx,double cy,
     else SDF = trueSDF / delta;
     weight = 0;
     if (trueSDF > -eta) weight = 1;
+    if(doDbgPrint)
+        printf("  >>depth_val: %f, t_point.z: %f, trueSDF: %f\n", depth_val, t_point.z, trueSDF);
+
     return SDF;
 }

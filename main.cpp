@@ -33,11 +33,12 @@
 
 // pcl::PointXYZ vxlDbg(47, 107, 258);
 pcl::PointXYZ vxlDbg(73,129,366);
+// pcl::PointXYZ vxlDbg(0,0,0);
 
 double FX = FX_k, FY = FY_k,
        CX = CX_k, CY = CY_k;
 
-#define DELTA 0.005
+#define DELTA 0.002
 double BETA = 0.5;
 //expected object thickness
 #define ETA 0.01
@@ -179,10 +180,23 @@ bool isValid(pcl::PointXYZ &point)
             (!std::isinf(-point.x)) && (!std::isinf(-point.y)) && (!std::isinf(-point.z)));
 }
 
-Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::PointCloud<pcl::PointXYZ>::Ptr ref_point_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr tar_point_cloud){
+//@param[in] initial_twist, applied to both ref & tar cloud
+Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::PointCloud<pcl::PointXYZ>::Ptr ref_point_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr tar_point_cloud, Eigen::Matrix<double, 6, 1> initial_twist = Eigen::MatrixXd::Zero(6, 1), Eigen::Matrix<double, 6, 1> twist_curr = Eigen::MatrixXd::Zero(6, 1))
+{
+    //initial twist
+    // Eigen::Matrix<double, 6, 1> initial_twist = Eigen::MatrixXd::Zero(6, 1);
+    Sophus::SE3d se_init = Sophus::SE3d::exp(initial_twist);
+    Eigen::Matrix<double, 4, 4> inverse_homogenous_init = (se_init.inverse()).matrix();
+    
+    pcl::PointCloud<pcl::PointXYZ>::Ptr final_ref_point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::transformPointCloud (*ref_point_cloud, *final_ref_point_cloud, inverse_homogenous_init);
+
+    // Eigen::Matrix<double, 6, 1> twist_curr = initial_twist; //add to func-param
+
     //get the lower left and upper left points
     pcl::PointXYZ pointll, pointur;
-    getLowerLeftAndUpperRight(ref_point_cloud,pointll,pointur);
+    // getLowerLeftAndUpperRight(ref_point_cloud,pointll,pointur);
+    getLowerLeftAndUpperRight(final_ref_point_cloud,pointll,pointur);
     // printf("pointLL(%f,%f,%f)\n",pointll.x,pointll.y,pointll.z);
     // printf("pointUR(%f,%f,%f)\n",pointur.x,pointur.y,pointur.z);
     /* Result
@@ -202,8 +216,6 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
      pointUR(0.014296,0.125222,0.502750)
      */
 
-    //initial twist
-    Eigen::Matrix<double ,6,1> initial_twist = Eigen::MatrixXd::Zero(6,1);
 
     //optimization
     pcl::PointXYZ maxVoxel = getVoxel(pointur, pointll, SIDE_LENGTH);
@@ -216,7 +228,7 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
     double weight_ref, weight_tar, weight_temp;
 
     clock_t begt = clock();
-    for (int iter = 0; iter < 20; iter ++) {
+    for (int iter = 0; iter < 015; iter ++) {
         //if (iter == 40) BETA *= 0.1;
         //if (iter >= 40) SIDE_LENGTH = 0.002;
         Eigen::Matrix<double, 6, 6> A = Eigen::MatrixXd::Zero(6,6);
@@ -227,6 +239,8 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
 
         int vxl_total_cnt = 0,
             vxl_valid_cnt = 0;
+        float phiDiffSum = 0.f,
+              phiAbsDiffSum = 0.f;
 
         double error = 0;
         for (int i = 0; i < max_x; i++) {
@@ -241,18 +255,24 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
                     pcl::PointXYZ intPoint(i, j, k);
                     pcl::PointXYZ floatPoint = getVoxelCenterByVoxel(intPoint, pointll, SIDE_LENGTH);
                     myPoint voxel(floatPoint.x, floatPoint.y, floatPoint.z);
+                    if (doDbgPrint)
+                        cout << "vox-cen-floatPoint: " << floatPoint << endl;
+
                     double PhiRef = PhisFunc(FX, FY, CX, CY, depth_map_ref,
                                              voxel, initial_twist,
-                                             DELTA, ETA, weight_ref, false);
+                                            //  DELTA, ETA, weight_ref, false);
+                                             DELTA, ETA, weight_ref, true
+                                             ,doDbgPrint);
                     if (doDbgPrint)
-                        printf("PhiRef, weight_ref: %f, %f; ", PhiRef, weight_ref);
+                        printf("PhiRef, weight_ref: %f, %f\n", PhiRef, weight_ref);
                     if (PhiRef < -1 || weight_ref == 0) continue;
 
                     double PhiTar = PhisFunc(FX, FY, CX, CY, depth_map_tar,
-                                             voxel, initial_twist,
+                                            //  voxel, initial_twist,
+                                             voxel, twist_curr,
                                              DELTA, ETA, weight_tar, true);
                     if (doDbgPrint)
-                        printf("PhiTar, weight_tar: %f, %f; \n", PhiTar, weight_tar);
+                        printf("PhiTar, weight_tar: %f, %f\n", PhiTar, weight_tar);
 
                     if (PhiTar < -1 || PhiTar == PhiRef || weight_tar == 0) continue;
 
@@ -265,56 +285,72 @@ Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar, pcl::Po
                     // if (weight_ref == 0 || weight_tar == 0 || PhiRef == PhiTar)
                     //     continue;
                     vxl_valid_cnt += 1;
-                    
-                    Eigen::Matrix<double, 1, 6> gradient = PhiFuncGradients(FX, FY, CX, CY, depth_map_tar,
-                                                                            voxel, initial_twist,
-                                                                            DELTA, ETA, SIDE_LENGTH, weight_temp);
+                    phiDiffSum += (PhiRef - PhiTar);
+                    phiAbsDiffSum += abs(PhiRef - PhiTar);
+
+                    Eigen::Matrix<double, 1, 6> gradient =
+                        PhiFuncGradients(FX, FY, CX, CY, depth_map_tar,
+                                         //  voxel, initial_twist,
+                                         voxel, twist_curr,
+                                         DELTA, ETA, SIDE_LENGTH, weight_temp, doDbgPrint);
                     A += gradient.transpose() * gradient;
                     b += (PhiRef -
                           PhiTar +
-                          gradient * initial_twist) *
+                        //   gradient * initial_twist) *
+                          gradient * twist_curr) *
                          gradient.transpose();
                     //zc:
                     delta_twist += (PhiTar - PhiRef) * gradient.transpose();
-                    if(doDbgPrint)
-                        printf("sdf-err: %f\n", 0.5 * (PhiRef * weight_ref - PhiTar * weight_tar) *
-                            (PhiRef * weight_ref - PhiTar * weight_tar));
-                            
-                    if ((PhiRef * weight_ref - PhiTar * weight_tar) *
-                        (PhiRef * weight_ref - PhiTar * weight_tar) != 0)
-                    error += 0.5 * (PhiRef * weight_ref - PhiTar * weight_tar) *
-                             (PhiRef * weight_ref - PhiTar * weight_tar);
+
+                    double err2 = (PhiRef * weight_ref - PhiTar * weight_tar) *
+                                  (PhiRef * weight_ref - PhiTar * weight_tar);
+
+                    if(doDbgPrint){
+                        cout << "sdf-err2: " << err2 << endl;
+                        cout << "grad6: " << gradient << endl;
+                    }
+
+                    if (err2 != 0)
+                        error += 0.5 * err2;
                 }
             }
         }
         if(iter < 1)
             printf("vxl_valid_cnt: %d\n", vxl_valid_cnt);
+        printf("phiDiffSum, abs: 【【%f, %f\n", phiDiffSum, phiAbsDiffSum);
 
 #if 1
 
-        Eigen::Matrix<double, 6, 1> inter_twist = A.inverse() * b;
+        Eigen::Matrix<double, 6, 1> twist_star = A.inverse() * b;
         // cout << "A, b:" << A << endl
         //      << b << endl
         //      << "A.det: " << A.determinant() << endl
-        //      << "A'*b: " << inter_twist.transpose() << endl;
+        //      << "A'*b: " << twist_star.transpose() << endl;
 
-        initial_twist += BETA * (inter_twist - initial_twist);
-
+        // initial_twist += BETA * (twist_star - initial_twist);
+        twist_curr += BETA * (twist_star - twist_curr);
 #else
         //zc: try direct GD myself
-        initial_twist -= 1e-7 * delta_twist;
+        // initial_twist -= 1e-7 * delta_twist;
+        twist_curr -= 1e-7 * delta_twist;
         cout << "delta_twist:" << delta_twist.transpose() << endl
              << "A:" << A << endl;
 #endif
 
-        // printf("%d th, error = %lf, vxl_valid_cnt: %d, avg-err: %lf\n", iter, error, vxl_valid_cnt, error / vxl_valid_cnt);
-        // printf("twist is : ");
+        printf(">>>>>%d th, error = %lf, vxl_valid_cnt: %d, avg-err: %lf\n", iter, error, vxl_valid_cnt, error / vxl_valid_cnt);
+        // printf("  twist: ");
         // for (int l = 0; l < 6; l ++)
-        //     printf("%f \n",initial_twist(l,0));
+        //     // printf("%f \n",initial_twist(l,0));
+        //     printf("%f \n",twist_curr(l,0));
+        cout << "  twist: " << twist_curr.transpose() << endl;
+        cout << "  diff-twist: " << (twist_star - twist_curr).transpose() << endl;
+        cout << "  real-t: " << Sophus::SE3d::exp(twist_curr).translation().transpose() << endl;
+
     }//for-iter
     printf("time-cost: %f\n", double(clock()-begt)/CLOCKS_PER_SEC);
 
-    return initial_twist;
+    // return initial_twist;
+    return twist_curr;
 }//get_twist
 
 Sophus::Vector6d get_twist(cv::Mat depth_map_ref, cv::Mat depth_map_tar){
@@ -340,7 +376,7 @@ void pointPickingCallback(const pcl::visualization::PointPickingEvent &event, vo
     // Vector3f cell_size = this->kinfu_->volume().getVoxelSize();
     pcl::visualization::PCLVisualizer *viewer = (pcl::visualization::PCLVisualizer *)(cookie);
     viewer->removeShape(pt_picked_str);
-    viewer->addSphere(pt_picked, SIDE_LENGTH/2, 1,0,1, pt_picked_str);
+    viewer->addSphere(pt_picked, SIDE_LENGTH/2, 1,0,1, pt_picked_str); //MAGENTA
 
     // vxlDbg.x = pt_picked.x;
     // vxlDbg.y = pt_picked.y;
@@ -382,13 +418,22 @@ int main(int argc, char *argv[])
     // cout<<t3<<','<<xi_curr<<endl;
     // cout<<t3(0)<<endl;
     // t3<<xi_curr;
-    // // cout<<tt(2)<<endl;
+    // cout<<tt(2)<<endl;
 
-    // Eigen::Vector3d t(1,0,0);           // 沿X轴平移1  
+    // // 沿Z轴转90度的旋转矩阵
+    // Eigen::Matrix3d R = 
+    //     // Eigen::Matrix3d::Identity();
+    //     Eigen::AngleAxisd(M_PI / 2, Eigen::Vector3d::UnitZ())
+    //     // *Eigen::AngleAxisd(M_PI / 6, Eigen::Vector3d::UnitY())
+    //     // *Eigen::AngleAxisd(M_PI / 7, Eigen::Vector3d::UnitX())
+    //     .toRotationMatrix();
+    // Eigen::Quaterniond q(R);            // 或者四元数
+    // Eigen::Vector3d t(0.543,0,0);           // 沿X轴平移1  
     // Sophus::SE3 SE3_Rt(R, t);           // 从R,t构造SE(3)  
-    // Sophus::SE3 SE3_qt(q,t);            // 从q,t构造SE(3)  
-    // cout<<"SE3 from R,t= "<<endl<<SE3_Rt<<endl;  
-    // cout<<"SE3 from q,t= "<<endl<<SE3_qt<<endl;  
+    // Sophus::SE3 SE3_qt(q,t);            // 从q,t构造SE(3)
+    // cout << "SE3_Rt.translation(): " << SE3_Rt.translation() << endl;
+    // cout<<"SE3 from R,t= "<<endl<<SE3_Rt.matrix()<<endl;  
+    // cout<<"SE3 from q,t= "<<endl<<SE3_qt.matrix()<<endl;  
     // // 李代数se(3) 是一个六维向量，方便起见先typedef一下  
     // typedef Eigen::Matrix<double,6,1> Vector6d;// Vector6d指代　Eigen::Matrix<double,6,1>  
     // Vector6d se3 = SE3_Rt.log();  
@@ -419,7 +464,7 @@ int main(int argc, char *argv[])
     if(pc::parse_argument(argc, argv, "-param", camera_file) > 0)
         load_param_file(camera_file);
     
-#if 0 //data sequences
+#if 10 //data sequences
 
     //init frame 0, set as Identity
     Vector6d twist0 = Vector6d::Zero();
@@ -526,6 +571,7 @@ int main(int argc, char *argv[])
     pcl::PointCloud<pcl::PointXYZ>::Ptr ref_point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr tar_point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr final_tar_point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr final_ref_point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
     //get depth map
     // cv::Mat depth_map_ref = load_exr_depth("Synthetic_Kenny_Circle/depth_000000.exr");
@@ -547,12 +593,50 @@ int main(int argc, char *argv[])
     DepthFrameToVertex(FX,FY,CX,CY,depth_map_ref,ref_point_cloud,0);
     DepthFrameToVertex(FX,FY,CX,CY,depth_map_tar,tar_point_cloud,0);
 
-    Eigen::Matrix<double ,6,1> initial_twist = get_twist(depth_map_ref, depth_map_tar, ref_point_cloud, tar_point_cloud);
-    cout << "twist: " << initial_twist.transpose() << endl;
+    //initial twist
+    Eigen::Matrix<double, 6, 1> initial_twist = Eigen::MatrixXd::Zero(6, 1);
+    // initial_twist << 0.967347, -0.0922676, 0.298225, 0.342899, 0.583875, 0.218188;
+    // initial_twist << 0.967347, -0.0922676, 0.298225, 0, 0, 0;
+    // initial_twist << 01., 0, 0, 0, 0, 0;
+
+    Eigen::Matrix3d R_init =
+        Eigen::Matrix3d::Identity();
+    Eigen::Vector3d t_init(01.1, 0, 0); // 沿X轴平移1
+    initial_twist = Sophus::SE3d(R_init, t_init).log();
+
+    Sophus::SE3d se_init = Sophus::SE3d::exp(initial_twist);
+    Eigen::Matrix<double, 4, 4> inverse_homogenous_init = (se_init.inverse()).matrix();
+    
+    pcl::transformPointCloud (*ref_point_cloud, *final_ref_point_cloud, inverse_homogenous_init);
+
+    //final twist
+    // Eigen::Matrix<double, 6, 1> final_twist = get_twist(depth_map_ref, depth_map_tar, ref_point_cloud, tar_point_cloud);
+    // Eigen::Matrix<double, 6, 1> final_twist = get_twist(depth_map_ref, depth_map_tar,
+    //                     ref_point_cloud, tar_point_cloud, initial_twist, initial_twist);
+
+    // Eigen::Quaterniond q_delta(1, 0, 0, 0); //fid=NAN
+    // Eigen::Vector3d t_delta(0,0,0);
+
+    Eigen::Quaterniond q_delta(0.9996249297,-0.0001915146,-0.0214710031,-0.0169942490); //fid=2 (start from 0), c2g
+    Eigen::Vector3d t_delta(0.0301748000,-0.0014679100,0.0012735700);
+
+    // Eigen::Quaterniond q_delta(0.9989373103,-0.0003006095,-0.0359687987,-0.0288152467); //fid=3
+    // Eigen::Vector3d t_delta(0.0502158000,-0.0029778500,0.0030276800);
+    
+    // Eigen::Quaterniond q_delta(0.9923799676,-0.0001005159,-0.0964879916,-0.0766296706); //fid=6
+    // Eigen::Vector3d t_delta(0.1332320000,-0.0135125000,0.0165170000);
+
+
+    Sophus::SE3d se_tar = Sophus::SE3d(q_delta, t_delta).inverse() * se_init; //note: g2c
+    Eigen::Matrix<double, 6, 1> initial_twist_tar = se_tar.log();
+
+    Eigen::Matrix<double, 6, 1> final_twist = get_twist(depth_map_ref, depth_map_tar, 
+                        ref_point_cloud, tar_point_cloud, initial_twist, initial_twist_tar);
+    cout << "twist: " << final_twist.transpose() << endl;
 
     //convert the target to reference
     //get the reverse of reference position
-    Sophus::SE3d se = Sophus::SE3d::exp(initial_twist);
+    Sophus::SE3d se = Sophus::SE3d::exp(final_twist);
 
     // i6->i0
     // Sophus::SE3d se(Eigen::Quaterniond(0.9962187260,-0.0008659845,-0.0742914162,-0.0450369721), {0.109307,-0.00638849,0.00853807}); //GT
@@ -563,6 +647,7 @@ int main(int argc, char *argv[])
     // Sophus::SE3d se(Eigen::Quaterniond(0.999981, 2.98226e-05, 0.00503015, -0.00365883), {-0.00543874,-1.5327e-05,2.59581e-05}); //test, GOOD
     // se = se.inverse(); //i0->ix, keep consistent
 
+cout<<"se.mat:\n"<<se.matrix()<<endl;
     Eigen::Matrix<double, 4, 4> inverse_homogenous = (se.inverse()).matrix();
     cout << "twist-inverse: " << se.inverse().log().transpose() << endl;
 
@@ -577,9 +662,10 @@ int main(int argc, char *argv[])
     pcl::visualization::PCLVisualizer viewer ("Matrix transformation");
 
     // Define R,G,B colors for the point cloud
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> source_cloud_color_handler (ref_point_cloud, 255, 255, 255);
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> source_cloud_color_handler (ref_point_cloud, 255, 255, 255); //White
     // We add the point cloud to the viewer and pass the color handler
-    viewer.addPointCloud (ref_point_cloud, source_cloud_color_handler, "ref_cloud");
+    // viewer.addPointCloud (ref_point_cloud, source_cloud_color_handler, "ref_cloud");
+    viewer.addPointCloud (final_ref_point_cloud, source_cloud_color_handler, "ref_cloud");
 
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> transformed_cloud_color_handler (final_tar_point_cloud, 230, 20, 20); // Red
     viewer.addPointCloud (final_tar_point_cloud, transformed_cloud_color_handler, "target_cloud");
